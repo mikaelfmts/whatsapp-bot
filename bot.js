@@ -1,3 +1,7 @@
+// Adicionar imports necessários no topo
+const { webcrypto } = require('node:crypto');
+global.crypto = webcrypto;
+
 const { default: makeWASocket, DisconnectReason, useMultiFileAuthState } = require('@whiskeysockets/baileys');
 const express = require('express');
 const QRCode = require('qrcode-terminal');
@@ -13,52 +17,69 @@ let isConnected = false;
 console.log('🚀 Iniciando Bot Baileys - Fluxo Nutri...');
 
 async function startBot() {
-    const { state, saveCreds } = await useMultiFileAuthState('./auth_info_baileys');
-    
-    sock = makeWASocket({
-        auth: state,
-        printQRInTerminal: true
-    });
+    try {
+        const { state, saveCreds } = await useMultiFileAuthState('./auth_info_baileys');
+        
+        sock = makeWASocket({
+            auth: state,
+            printQRInTerminal: false, // Desativar QR no terminal
+            browser: ['Fluxo Nutri Bot', 'Chrome', '22.04.4'],
+            generateHighQualityLinkPreview: true
+        });
 
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
-        
-        if (qr) {
-            console.log('📱 QR Code gerado - Baileys!');
-            QRCode.generate(qr, { small: true });
-            qrCodeData = qr;
-            isConnected = false;
-        }
-        
-        if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('❌ Conexão fechada, reconectando...', shouldReconnect);
-            isConnected = false;
-            if (shouldReconnect) {
-                startBot();
+        sock.ev.on('connection.update', async (update) => {
+            const { connection, lastDisconnect, qr } = update;
+            
+            if (qr) {
+                console.log('📱 QR Code gerado - Baileys!');
+                console.log('🌐 Acesse: https://whatsapp-bot-production-aa9f.up.railway.app/qr');
+                QRCode.generate(qr, { small: true });
+                qrCodeData = qr;
+                isConnected = false;
             }
-        } else if (connection === 'open') {
-            console.log('✅ WhatsApp conectado via Baileys!');
-            isConnected = true;
-            qrCodeData = null;
-        }
-    });
+            
+            if (connection === 'close') {
+                const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
+                console.log('❌ Conexão fechada, reconectando...', shouldReconnect);
+                isConnected = false;
+                qrCodeData = null;
+                
+                if (shouldReconnect) {
+                    setTimeout(() => {
+                        console.log('🔄 Tentando reconectar...');
+                        startBot();
+                    }, 5000);
+                }
+            } else if (connection === 'open') {
+                console.log('✅ WhatsApp conectado via Baileys!');
+                isConnected = true;
+                qrCodeData = null;
+            }
+        });
 
-    sock.ev.on('creds.update', saveCreds);
+        sock.ev.on('creds.update', saveCreds);
+        
+    } catch (error) {
+        console.error('❌ Erro ao iniciar bot:', error);
+        setTimeout(() => {
+            console.log('🔄 Reiniciando bot após erro...');
+            startBot();
+        }, 10000);
+    }
 }
 
 // Endpoint de status
 app.get('/', (req, res) => {
     res.json({
-        status: 'Bot Fluxo Nutri Online! 🚀 (Baileys)',
+        status: 'Bot Fluxo Nutri Online! 🚀 (Baileys Fixed)',
         whatsapp: isConnected ? 'Conectado ✅' : 'Aguardando QR Code 📱',
         qrcode: qrCodeData ? 'Disponível em /qr' : 'Não disponível',
         timestamp: new Date().toISOString(),
-        version: '3.0.0 (Baileys)'
+        version: '3.1.0 (Baileys Fixed)'
     });
 });
 
-// Página QR Code
+// Página QR Code (mesmo código anterior)
 app.get('/qr', async (req, res) => {
     if (qrCodeData) {
         try {
@@ -90,11 +111,11 @@ app.get('/qr', async (req, res) => {
         
         <button onclick="window.location.reload()">🔄 Atualizar QR Code</button>
         
-        <p>⚡ Baileys - Mais estável que whatsapp-web.js</p>
+        <p>⚡ Baileys Fixed - Crypto Error Resolvido</p>
     </div>
     
     <script>
-        setTimeout(() => window.location.reload(), 20000);
+        setTimeout(() => window.location.reload(), 25000);
     </script>
 </body>
 </html>
@@ -134,7 +155,7 @@ app.post('/send-order', async (req, res) => {
         if (!isConnected || !sock) {
             return res.json({ 
                 success: false, 
-                error: 'WhatsApp não conectado. Acesse /qr para conectar.' 
+                error: 'WhatsApp não conectado via Baileys. Acesse /qr para conectar.' 
             });
         }
 
@@ -146,10 +167,10 @@ app.post('/send-order', async (req, res) => {
             try {
                 const formattedPhone = formatPhone(phone);
                 await sock.sendMessage(formattedPhone, { text: message });
-                console.log('📤 Mensagem enviada para o dono:', formattedPhone);
-                results.owner = 'Enviada com sucesso';
+                console.log('📤 Baileys - Mensagem enviada para o dono:', formattedPhone);
+                results.owner = 'Enviada com sucesso via Baileys';
             } catch (err) {
-                console.error('❌ Erro ao enviar para dono:', err);
+                console.error('❌ Baileys - Erro ao enviar para dono:', err);
                 results.owner = 'Erro: ' + err.message;
             }
         }
@@ -159,22 +180,22 @@ app.post('/send-order', async (req, res) => {
             try {
                 const formattedCustomer = formatPhone(customerPhone);
                 await sock.sendMessage(formattedCustomer, { text: customerMessage });
-                console.log('📤 Mensagem enviada para o cliente:', formattedCustomer);
-                results.customer = 'Enviada com sucesso';
+                console.log('📤 Baileys - Mensagem enviada para o cliente:', formattedCustomer);
+                results.customer = 'Enviada com sucesso via Baileys';
             } catch (err) {
-                console.error('❌ Erro ao enviar para cliente:', err);
+                console.error('❌ Baileys - Erro ao enviar para cliente:', err);
                 results.customer = 'Erro: ' + err.message;
             }
         }
 
         res.json({ 
-            success: true, 
+            success: Object.values(results).some(r => r.includes('sucesso')), 
             message: 'Baileys - Mensagens processadas!',
             results: results
         });
 
     } catch (error) {
-        console.error('❌ Erro geral:', error);
+        console.error('❌ Baileys - Erro geral:', error);
         res.json({ 
             success: false, 
             error: error.message 
@@ -185,21 +206,26 @@ app.post('/send-order', async (req, res) => {
 function formatPhone(phone) {
     let clean = phone.replace(/\D/g, '');
     
-    // Se começa com 85 e tem 11 dígitos, adiciona 55
-    if (clean.length === 11 && clean.startsWith('85')) {
-        clean = '55' + clean;
-    }
+    // Testar múltiplos formatos
+    const formats = [
+        clean + '@c.us',                    // Formato direto
+        '55' + clean + '@c.us',             // Com código do Brasil
+        clean.replace(/^55/, '') + '@c.us'  // Remove 55 se tiver
+    ];
     
-    // Se não termina com @c.us, adiciona
-    if (!clean.includes('@')) {
-        clean = clean + '@c.us';
+    // Retornar formato mais provável baseado no tamanho
+    if (clean.length === 13 && clean.startsWith('55')) {
+        return clean + '@c.us'; // Já tem 55
+    } else if (clean.length === 11) {
+        return '55' + clean + '@c.us'; // Adicionar 55
+    } else {
+        return clean + '@c.us'; // Como está
     }
-    
-    return clean;
 }
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
     console.log(`🌐 Servidor Baileys rodando na porta ${PORT}`);
+    console.log('🔧 Crypto fix aplicado - iniciando bot...');
     startBot();
 });
