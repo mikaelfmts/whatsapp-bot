@@ -22,9 +22,11 @@ RUN apt-get update && apt-get install -y \
 # Definir diretório de trabalho
 WORKDIR /app
 
-# Copiar package.json e instalar dependências
-COPY package*.json ./
-RUN npm ci --only=production
+# Copiar package.json
+COPY package.json ./
+
+# Instalar dependências (usar install em vez de ci)
+RUN npm install --production
 
 # Copiar código da aplicação
 COPY . .
