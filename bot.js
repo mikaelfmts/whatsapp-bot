@@ -1,6 +1,7 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const express = require('express');
 const QRCode = require('qrcode-terminal');
+const qrcode = require('qrcode'); // Adicionar esta linha
 
 const app = express();
 app.use(express.json());
@@ -12,7 +13,7 @@ const client = new Client({
         dataPath: './whatsapp-session'
     }),
     puppeteer: {
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable',
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -34,15 +35,29 @@ const client = new Client({
 
 let isWhatsAppReady = false;
 let qrCodeData = null;
+let qrCodeImage = null;
 
 // Gerar QR Code para conectar WhatsApp
-client.on('qr', (qr) => {
+client.on('qr', async (qr) => {
     console.log('📱 QR Code gerado!');
+    console.log('🌐 Acesse: https://whatsapp-bot-production-aa9f.up.railway.app/qr');
     console.log('='.repeat(50));
+    
+    // QR Code no terminal (menor)
     QRCode.generate(qr, { small: true });
+    
     console.log('='.repeat(50));
-    console.log('👆 Escaneie com seu WhatsApp Business');
+    console.log('👆 Ou acesse o link acima para ver o QR Code completo');
+    
     qrCodeData = qr;
+    
+    // Gerar imagem do QR Code
+    try {
+        qrCodeImage = await qrcode.toDataURL(qr, { width: 300, margin: 2 });
+        console.log('✅ QR Code disponível em: /qr');
+    } catch (err) {
+        console.error('❌ Erro ao gerar imagem do QR Code:', err);
+    }
 });
 
 // Quando conectar com sucesso
@@ -50,6 +65,7 @@ client.on('ready', () => {
     console.log('✅ WhatsApp conectado com sucesso!');
     isWhatsAppReady = true;
     qrCodeData = null;
+    qrCodeImage = null;
 });
 
 // Autenticação bem-sucedida
@@ -66,6 +82,9 @@ client.on('auth_failure', (msg) => {
 client.on('disconnected', (reason) => {
     console.log('❌ WhatsApp desconectado:', reason);
     isWhatsAppReady = false;
+    qrCodeData = null;
+    qrCodeImage = null;
+    
     // Tentar reconectar após 10 segundos
     setTimeout(() => {
         console.log('🔄 Tentando reconectar...');
@@ -73,25 +92,178 @@ client.on('disconnected', (reason) => {
     }, 10000);
 });
 
-// Endpoint de status com QR Code
+// Endpoint de status
 app.get('/', (req, res) => {
     res.json({
         status: 'Bot Fluxo Nutri Online! 🚀',
         whatsapp: isWhatsAppReady ? 'Conectado ✅' : 'Aguardando QR Code 📱',
-        qrcode: qrCodeData ? 'Disponível - Veja os logs' : 'Não disponível',
+        qrcode: qrCodeData ? 'Disponível em /qr' : 'Não disponível',
         timestamp: new Date().toISOString(),
-        version: '2.0.0'
+        version: '2.1.0'
     });
 });
 
-// Endpoint para obter QR Code (para debug)
+// Página HTML com QR Code
 app.get('/qr', (req, res) => {
-    if (qrCodeData) {
-        res.json({ qr: qrCodeData });
+    if (qrCodeImage) {
+        res.send(`
+<!DOCTYPE html>
+<html>
+<head>
+    <title>QR Code - Fluxo Nutri WhatsApp</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #0a0f1c;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            text-align: center;
+            background: #1a1a2e;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 0 20px rgba(0, 102, 255, 0.3);
+        }
+        .qr-code {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            display: inline-block;
+            margin: 20px 0;
+        }
+        .refresh-btn {
+            background: #0066ff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+        .refresh-btn:hover {
+            background: #0052cc;
+        }
+        .instructions {
+            margin-top: 20px;
+            font-size: 14px;
+            color: #ccc;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Fluxo Nutri WhatsApp Bot</h1>
+        <h2>📱 Escaneie o QR Code</h2>
+        <div class="qr-code">
+            <img src="${qrCodeImage}" alt="QR Code WhatsApp" />
+        </div>
+        <p><strong>1.</strong> Abra o WhatsApp Business</p>
+        <p><strong>2.</strong> Toque em "Mais opções" → "Dispositivos conectados"</p>
+        <p><strong>3.</strong> Toque em "Conectar um dispositivo"</p>
+        <p><strong>4.</strong> Escaneie este QR Code</p>
+        
+        <button class="refresh-btn" onclick="window.location.reload()">🔄 Atualizar QR Code</button>
+        
+        <div class="instructions">
+            <p>⏰ QR Code expira em 20 segundos</p>
+            <p>🔄 Se expirar, clique em "Atualizar QR Code"</p>
+        </div>
+    </div>
+    
+    <script>
+        // Auto-refresh a cada 20 segundos
+        setTimeout(() => {
+            window.location.reload();
+        }, 20000);
+    </script>
+</body>
+</html>
+        `);
     } else if (isWhatsAppReady) {
-        res.json({ message: 'WhatsApp já está conectado!' });
+        res.send(`
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WhatsApp Conectado - Fluxo Nutri</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #0a0f1c;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+        .container {
+            text-align: center;
+            background: #1a1a2e;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>✅ WhatsApp Conectado!</h1>
+        <p>🚀 Bot Fluxo Nutri está funcionando perfeitamente!</p>
+        <p>📱 WhatsApp Business conectado com sucesso.</p>
+    </div>
+</body>
+</html>
+        `);
     } else {
-        res.json({ message: 'QR Code ainda não foi gerado. Aguarde...' });
+        res.send(`
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Gerando QR Code - Fluxo Nutri</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #0a0f1c;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+        .container {
+            text-align: center;
+            background: #1a1a2e;
+            padding: 30px;
+            border-radius: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>⏳ Gerando QR Code...</h1>
+        <p>Aguarde alguns segundos e recarregue a página.</p>
+        <button onclick="window.location.reload()">🔄 Recarregar</button>
+    </div>
+    <script>
+        setTimeout(() => window.location.reload(), 5000);
+    </script>
+</body>
+</html>
+        `);
     }
 });
 
@@ -101,13 +273,12 @@ app.post('/send-order', async (req, res) => {
         if (!isWhatsAppReady) {
             return res.json({ 
                 success: false, 
-                error: 'WhatsApp não está conectado. Verifique o QR Code nos logs.',
+                error: 'WhatsApp não está conectado. Acesse /qr para conectar.',
                 qrAvailable: !!qrCodeData
             });
         }
 
         const { phone, message, customerPhone, customerMessage } = req.body;
-
         let results = {};
 
         // Enviar para você (dono da loja)
@@ -124,7 +295,7 @@ app.post('/send-order', async (req, res) => {
         // Enviar para o cliente (opcional)
         if (customerPhone && customerMessage) {
             let clientPhone = customerPhone.replace(/\D/g, '');
-            if (!clientPhone.startsWith('55')) {
+            if (!clientPhone.startsWith('55') && clientPhone.length === 11) {
                 clientPhone = '55' + clientPhone;
             }
             await client.sendMessage(clientPhone + '@c.us', customerMessage);
@@ -151,6 +322,7 @@ app.post('/send-order', async (req, res) => {
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
     console.log(`🌐 Servidor rodando na porta ${PORT}`);
+    console.log('🌐 QR Code disponível em: https://whatsapp-bot-production-aa9f.up.railway.app/qr');
     console.log('📱 Inicializando cliente WhatsApp...');
     
     // Inicializar WhatsApp com delay
