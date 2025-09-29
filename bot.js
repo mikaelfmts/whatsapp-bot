@@ -1,227 +1,115 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { default: makeWASocket, DisconnectReason, useMultiFileAuthState } = require('@whiskeysockets/baileys');
 const express = require('express');
 const QRCode = require('qrcode-terminal');
-const qrcode = require('qrcode'); // Adicionar esta linha
+const qrcode = require('qrcode');
 
 const app = express();
 app.use(express.json());
 
-console.log('🚀 Iniciando Bot WhatsApp Fluxo Nutri...');
-
-const client = new Client({
-    authStrategy: new LocalAuth({
-        dataPath: './whatsapp-session'
-    }),
-    puppeteer: {
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable',
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--single-process',
-            '--disable-gpu',
-            '--disable-background-timer-throttling',
-            '--disable-backgrounding-occluded-windows',
-            '--disable-renderer-backgrounding',
-            '--disable-features=TranslateUI',
-            '--disable-ipc-flooding-protection'
-        ],
-        headless: true
-    }
-});
-
-let isWhatsAppReady = false;
+let sock = null;
 let qrCodeData = null;
-let qrCodeImage = null;
+let isConnected = false;
 
-// Gerar QR Code para conectar WhatsApp
-client.on('qr', async (qr) => {
-    console.log('📱 QR Code gerado!');
-    console.log('🌐 Acesse: https://whatsapp-bot-production-aa9f.up.railway.app/qr');
-    console.log('='.repeat(50));
-    
-    // QR Code no terminal (menor)
-    QRCode.generate(qr, { small: true });
-    
-    console.log('='.repeat(50));
-    console.log('👆 Ou acesse o link acima para ver o QR Code completo');
-    
-    qrCodeData = qr;
-    
-    // Gerar imagem do QR Code
-    try {
-        qrCodeImage = await qrcode.toDataURL(qr, { width: 300, margin: 2 });
-        console.log('✅ QR Code disponível em: /qr');
-    } catch (err) {
-        console.error('❌ Erro ao gerar imagem do QR Code:', err);
-    }
-});
+console.log('🚀 Iniciando Bot Baileys - Fluxo Nutri...');
 
-// Quando conectar com sucesso
-client.on('ready', () => {
-    console.log('✅ WhatsApp conectado com sucesso!');
-    isWhatsAppReady = true;
-    qrCodeData = null;
-    qrCodeImage = null;
-});
-
-// Autenticação bem-sucedida
-client.on('authenticated', () => {
-    console.log('🔐 WhatsApp autenticado!');
-});
-
-// Falha na autenticação
-client.on('auth_failure', (msg) => {
-    console.error('❌ Falha na autenticação:', msg);
-});
-
-// Tratar desconexões
-client.on('disconnected', (reason) => {
-    console.log('❌ WhatsApp desconectado:', reason);
-    isWhatsAppReady = false;
-    qrCodeData = null;
-    qrCodeImage = null;
+async function startBot() {
+    const { state, saveCreds } = await useMultiFileAuthState('./auth_info_baileys');
     
-    // Tentar reconectar após 10 segundos
-    setTimeout(() => {
-        console.log('🔄 Tentando reconectar...');
-        client.initialize();
-    }, 10000);
-});
+    sock = makeWASocket({
+        auth: state,
+        printQRInTerminal: true
+    });
+
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+        
+        if (qr) {
+            console.log('📱 QR Code gerado - Baileys!');
+            QRCode.generate(qr, { small: true });
+            qrCodeData = qr;
+            isConnected = false;
+        }
+        
+        if (connection === 'close') {
+            const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
+            console.log('❌ Conexão fechada, reconectando...', shouldReconnect);
+            isConnected = false;
+            if (shouldReconnect) {
+                startBot();
+            }
+        } else if (connection === 'open') {
+            console.log('✅ WhatsApp conectado via Baileys!');
+            isConnected = true;
+            qrCodeData = null;
+        }
+    });
+
+    sock.ev.on('creds.update', saveCreds);
+}
 
 // Endpoint de status
 app.get('/', (req, res) => {
     res.json({
-        status: 'Bot Fluxo Nutri Online! 🚀',
-        whatsapp: isWhatsAppReady ? 'Conectado ✅' : 'Aguardando QR Code 📱',
+        status: 'Bot Fluxo Nutri Online! 🚀 (Baileys)',
+        whatsapp: isConnected ? 'Conectado ✅' : 'Aguardando QR Code 📱',
         qrcode: qrCodeData ? 'Disponível em /qr' : 'Não disponível',
         timestamp: new Date().toISOString(),
-        version: '2.1.0'
+        version: '3.0.0 (Baileys)'
     });
 });
 
-// Página HTML com QR Code
-app.get('/qr', (req, res) => {
-    if (qrCodeImage) {
-        res.send(`
+// Página QR Code
+app.get('/qr', async (req, res) => {
+    if (qrCodeData) {
+        try {
+            const qrImage = await qrcode.toDataURL(qrCodeData, { width: 300, margin: 2 });
+            res.send(`
 <!DOCTYPE html>
 <html>
 <head>
-    <title>QR Code - Fluxo Nutri WhatsApp</title>
+    <title>QR Code Baileys - Fluxo Nutri</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: #0a0f1c;
-            color: white;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            margin: 0;
-            padding: 20px;
-        }
-        .container {
-            text-align: center;
-            background: #1a1a2e;
-            padding: 30px;
-            border-radius: 15px;
-            box-shadow: 0 0 20px rgba(0, 102, 255, 0.3);
-        }
-        .qr-code {
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            display: inline-block;
-            margin: 20px 0;
-        }
-        .refresh-btn {
-            background: #0066ff;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 5px;
-            cursor: pointer;
-            margin-top: 20px;
-        }
-        .refresh-btn:hover {
-            background: #0052cc;
-        }
-        .instructions {
-            margin-top: 20px;
-            font-size: 14px;
-            color: #ccc;
-        }
+        body { font-family: Arial; background: #0a0f1c; color: white; text-align: center; padding: 20px; }
+        .container { background: #1a1a2e; padding: 30px; border-radius: 15px; display: inline-block; }
+        .qr-code { background: white; padding: 20px; border-radius: 10px; margin: 20px 0; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🚀 Fluxo Nutri WhatsApp Bot</h1>
+        <h1>🚀 Fluxo Nutri WhatsApp Bot (Baileys)</h1>
         <h2>📱 Escaneie o QR Code</h2>
         <div class="qr-code">
-            <img src="${qrCodeImage}" alt="QR Code WhatsApp" />
+            <img src="${qrImage}" alt="QR Code WhatsApp Baileys" />
         </div>
-        <p><strong>1.</strong> Abra o WhatsApp Business</p>
+        <p><strong>1.</strong> Abra o WhatsApp</p>
         <p><strong>2.</strong> Toque em "Mais opções" → "Dispositivos conectados"</p>
         <p><strong>3.</strong> Toque em "Conectar um dispositivo"</p>
         <p><strong>4.</strong> Escaneie este QR Code</p>
         
-        <button class="refresh-btn" onclick="window.location.reload()">🔄 Atualizar QR Code</button>
+        <button onclick="window.location.reload()">🔄 Atualizar QR Code</button>
         
-        <div class="instructions">
-            <p>⏰ QR Code expira em 20 segundos</p>
-            <p>🔄 Se expirar, clique em "Atualizar QR Code"</p>
-        </div>
+        <p>⚡ Baileys - Mais estável que whatsapp-web.js</p>
     </div>
     
     <script>
-        // Auto-refresh a cada 20 segundos
-        setTimeout(() => {
-            window.location.reload();
-        }, 20000);
+        setTimeout(() => window.location.reload(), 20000);
     </script>
 </body>
 </html>
-        `);
-    } else if (isWhatsAppReady) {
+            `);
+        } catch (err) {
+            res.json({ error: 'Erro ao gerar QR Code', message: err.message });
+        }
+    } else if (isConnected) {
         res.send(`
 <!DOCTYPE html>
 <html>
-<head>
-    <title>WhatsApp Conectado - Fluxo Nutri</title>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: #0a0f1c;
-            color: white;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            margin: 0;
-        }
-        .container {
-            text-align: center;
-            background: #1a1a2e;
-            padding: 30px;
-            border-radius: 15px;
-            box-shadow: 0 0 20px rgba(0, 255, 0, 0.3);
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>✅ WhatsApp Conectado!</h1>
-        <p>🚀 Bot Fluxo Nutri está funcionando perfeitamente!</p>
-        <p>📱 WhatsApp Business conectado com sucesso.</p>
-    </div>
+<head><title>WhatsApp Conectado</title></head>
+<body style="font-family: Arial; background: #0a0f1c; color: white; text-align: center; padding: 50px;">
+    <h1>✅ WhatsApp Conectado!</h1>
+    <p>🚀 Bot Baileys funcionando perfeitamente!</p>
 </body>
 </html>
         `);
@@ -229,88 +117,64 @@ app.get('/qr', (req, res) => {
         res.send(`
 <!DOCTYPE html>
 <html>
-<head>
-    <title>Gerando QR Code - Fluxo Nutri</title>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: #0a0f1c;
-            color: white;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            margin: 0;
-        }
-        .container {
-            text-align: center;
-            background: #1a1a2e;
-            padding: 30px;
-            border-radius: 15px;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>⏳ Gerando QR Code...</h1>
-        <p>Aguarde alguns segundos e recarregue a página.</p>
-        <button onclick="window.location.reload()">🔄 Recarregar</button>
-    </div>
-    <script>
-        setTimeout(() => window.location.reload(), 5000);
-    </script>
+<head><title>Gerando QR Code</title></head>
+<body style="font-family: Arial; background: #0a0f1c; color: white; text-align: center; padding: 50px;">
+    <h1>⏳ Gerando QR Code...</h1>
+    <button onclick="window.location.reload()">🔄 Recarregar</button>
+    <script>setTimeout(() => window.location.reload(), 5000);</script>
 </body>
 </html>
         `);
     }
 });
 
-// API para enviar mensagens de pedidos
+// API para enviar mensagens
 app.post('/send-order', async (req, res) => {
     try {
-        if (!isWhatsAppReady) {
+        if (!isConnected || !sock) {
             return res.json({ 
                 success: false, 
-                error: 'WhatsApp não está conectado. Acesse /qr para conectar.',
-                qrAvailable: !!qrCodeData
+                error: 'WhatsApp não conectado. Acesse /qr para conectar.' 
             });
         }
 
         const { phone, message, customerPhone, customerMessage } = req.body;
         let results = {};
 
-        // Enviar para você (dono da loja)
+        // Enviar para dono
         if (phone && message) {
-            let ownerPhone = phone.replace(/\D/g, '');
-            if (!ownerPhone.startsWith('55')) {
-                ownerPhone = '55' + ownerPhone;
+            try {
+                const formattedPhone = formatPhone(phone);
+                await sock.sendMessage(formattedPhone, { text: message });
+                console.log('📤 Mensagem enviada para o dono:', formattedPhone);
+                results.owner = 'Enviada com sucesso';
+            } catch (err) {
+                console.error('❌ Erro ao enviar para dono:', err);
+                results.owner = 'Erro: ' + err.message;
             }
-            await client.sendMessage(ownerPhone + '@c.us', message);
-            console.log('📤 Mensagem enviada para o dono:', ownerPhone);
-            results.owner = 'Enviada com sucesso';
         }
 
-        // Enviar para o cliente (opcional)
+        // Enviar para cliente
         if (customerPhone && customerMessage) {
-            let clientPhone = customerPhone.replace(/\D/g, '');
-            if (!clientPhone.startsWith('55') && clientPhone.length === 11) {
-                clientPhone = '55' + clientPhone;
+            try {
+                const formattedCustomer = formatPhone(customerPhone);
+                await sock.sendMessage(formattedCustomer, { text: customerMessage });
+                console.log('📤 Mensagem enviada para o cliente:', formattedCustomer);
+                results.customer = 'Enviada com sucesso';
+            } catch (err) {
+                console.error('❌ Erro ao enviar para cliente:', err);
+                results.customer = 'Erro: ' + err.message;
             }
-            await client.sendMessage(clientPhone + '@c.us', customerMessage);
-            console.log('📤 Mensagem enviada para o cliente:', clientPhone);
-            results.customer = 'Enviada com sucesso';
         }
 
         res.json({ 
             success: true, 
-            message: 'Mensagens enviadas!',
+            message: 'Baileys - Mensagens processadas!',
             results: results
         });
 
     } catch (error) {
-        console.error('❌ Erro ao enviar mensagem:', error);
+        console.error('❌ Erro geral:', error);
         res.json({ 
             success: false, 
             error: error.message 
@@ -318,22 +182,24 @@ app.post('/send-order', async (req, res) => {
     }
 });
 
-// Inicializar servidor
+function formatPhone(phone) {
+    let clean = phone.replace(/\D/g, '');
+    
+    // Se começa com 85 e tem 11 dígitos, adiciona 55
+    if (clean.length === 11 && clean.startsWith('85')) {
+        clean = '55' + clean;
+    }
+    
+    // Se não termina com @c.us, adiciona
+    if (!clean.includes('@')) {
+        clean = clean + '@c.us';
+    }
+    
+    return clean;
+}
+
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
-    console.log(`🌐 Servidor rodando na porta ${PORT}`);
-    console.log('🌐 QR Code disponível em: https://whatsapp-bot-production-aa9f.up.railway.app/qr');
-    console.log('📱 Inicializando cliente WhatsApp...');
-    
-    // Inicializar WhatsApp com delay
-    setTimeout(() => {
-        client.initialize();
-    }, 2000);
-});
-
-// Graceful shutdown
-process.on('SIGINT', async () => {
-    console.log('🛑 Encerrando aplicação...');
-    await client.destroy();
-    process.exit(0);
+    console.log(`🌐 Servidor Baileys rodando na porta ${PORT}`);
+    startBot();
 });
